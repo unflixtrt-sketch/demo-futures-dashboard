@@ -1,0 +1,49 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Demo Futures Dashboard</title>
+<style>
+body{margin:0;background:#0b0e14;color:#e6e8ee;font:14px system-ui,sans-serif}
+header{padding:14px 20px;background:#121722;display:flex;justify-content:space-between;align-items:center}
+h1{font-size:18px;margin:0}.tag{background:#2a3350;padding:2px 8px;border-radius:10px;font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;padding:16px 20px}
+.card{background:#121722;border-radius:10px;padding:12px 14px}.card small{color:#8a93a8;display:block;margin-bottom:4px}.card b{font-size:20px}
+section{padding:0 20px 16px}h2{font-size:15px;margin:10px 0}
+table{width:100%;border-collapse:collapse;background:#121722;border-radius:10px;overflow:hidden}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid #1c2333;white-space:nowrap}th:first-child,td:first-child{text-align:left}th{color:#8a93a8;font-weight:500}
+.up{color:#2ecc71}.dn{color:#ff5c5c}.wrap{overflow-x:auto}
+canvas{width:100%;height:180px;background:#121722;border-radius:10px}
+.log{background:#121722;border-radius:10px;padding:10px;max-height:220px;overflow:auto;font-size:12px;color:#aab2c5}
+button{background:#2a3350;color:#fff;border:0;border-radius:6px;padding:4px 10px;cursor:pointer}
+</style></head><body>
+<header><h1>Demo Futures Dashboard <span class="tag">PAPER</span></h1><div id="px"></div></header>
+<div style="padding:4px 20px;color:#8a93a8" id="upd">Yükleniyor...</div><div class="grid" id="cards"></div>
+<section><h2>Bakiye eğrisi</h2><canvas id="c" width="1200" height="180"></canvas></section>
+<section><h2>Açık pozisyonlar</h2><div class="wrap"><table id="pos"></table></div></section>
+<section><h2>Son işlemler</h2><div class="wrap"><table id="his"></table></div></section>
+<section><h2>Olay günlüğü</h2><div class="log" id="log"></div></section>
+<script>
+const f=(n,d=2)=>Number(n).toLocaleString('tr-TR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const cl=n=>n>=0?'up':'dn';
+async function load(){
+ let s;
+ try{const r=await fetch('https://api.github.com/repos/unflixtrt-sketch/demo-futures-dashboard/contents/state.json?ref=data&t='+Date.now(),{headers:{'Accept':'application/vnd.github.raw'}});s=await r.json();document.title='Demo Futures';}catch(e){return}
+ if(!s||!s.equity){return}
+ document.getElementById('upd').textContent='Son güncelleme: '+new Date(s.ts*1000).toLocaleTimeString('tr-TR');
+ document.getElementById('px').innerHTML=Object.entries(s.prices).map(([k,v])=>`${k}: <b>${f(v)}</b>`).join(' &nbsp; ');
+ const roi=s.total_pnl/s.start*100;
+ document.getElementById('cards').innerHTML=[
+ ['Toplam varlık (equity)',`$${f(s.equity)}`],['Serbest bakiye',`$${f(s.balance)}`],
+ ['Toplam PnL',`<span class="${cl(s.total_pnl)}">${s.total_pnl>=0?'+':''}${f(s.total_pnl)}$ (${f(roi)}%)</span>`],
+ ['İşlem / Kazanma',`${s.stats.trades} / %${s.stats.winrate}`],
+ ['Günlük zarar',`$${f(s.daily_loss)} / $${f(s.risk.daily_loss_limit)}`],
+ ['Hedef (2x)',`$${f(s.start*2)}`]].map(([a,b])=>`<div class="card"><small>${a}</small><b>${b}</b></div>`).join('');
+ document.getElementById('pos').innerHTML='<tr><th>#</th><th>Parite</th><th>Yön</th><th>Kaldıraç</th><th>Marjin</th><th>Giriş</th><th>Fiyat</th><th>Stop</th><th>Hedef</th><th>Likidasyon</th><th>PnL</th><th>ROE</th><th>Gerekçe</th><th></th></tr>'+
+  (s.positions.map(p=>`<tr><td>${p.id}</td><td>${p.symbol}</td><td class="${p.side=='long'?'up':'dn'}">${p.side.toUpperCase()}</td><td>${p.leverage}x</td><td>$${f(p.margin)}</td><td>${f(p.entry)}</td><td>${f(p.price)}</td><td>${f(p.sl)}</td><td>${p.tp?f(p.tp):'-'}</td><td>${f(p.liq)}</td><td class="${cl(p.upnl)}">${f(p.upnl)}$</td><td class="${cl(p.roe)}">%${f(p.roe)}</td><td style="text-align:left;white-space:normal">${p.reason||''}</td><td></td></tr>`).join('')||'<tr><td colspan=14>Açık pozisyon yok</td></tr>');
+ document.getElementById('his').innerHTML='<tr><th>#</th><th>Parite</th><th>Yön</th><th>Kaldıraç</th><th>Giriş</th><th>Çıkış</th><th>PnL</th><th>Sebep</th></tr>'+
+  (s.history.map(h=>`<tr><td>${h.id}</td><td>${h.symbol}</td><td>${h.side}</td><td>${h.leverage}x</td><td>${f(h.entry)}</td><td>${f(h.exit)}</td><td class="${cl(h.pnl)}">${f(h.pnl)}$</td><td>${h.reason}</td></tr>`).join('')||'<tr><td colspan=8>Henüz işlem yok</td></tr>');
+ document.getElementById('log').innerHTML=s.log.map(l=>`${new Date(l.t*1000).toLocaleTimeString('tr-TR')} - ${l.msg}`).join('<br>');
+ const c=document.getElementById('c'),x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);
+ const d=s.curve;if(d.length>1){const ys=d.map(a=>a[1]),mn=Math.min(...ys,s.start)-5,mx=Math.max(...ys,s.start)+5;
+  x.strokeStyle='#4da3ff';x.lineWidth=2;x.beginPath();d.forEach((a,i)=>{const X=i/(d.length-1)*c.width,Y=c.height-(a[1]-mn)/(mx-mn)*c.height;i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke();}
+}
+load();setInterval(load,90000);
+</script></body></html>
